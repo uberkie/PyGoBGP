@@ -201,51 +201,93 @@ class PyGoBGP:
         return container
 
     def _extract_as_path(self, destination):
-        prefix = "4002"
         for attr in destination.paths[0].pattrs:
-            attr = attr.hex()
-            if attr.startswith(prefix):
-                aspath = attr[10:]
-                aspath = list(self.chunkstring(string=aspath, length=8))
-                return aspath 
-        return None
+            attr_bytes = bytes(attr)
+            if len(attr_bytes) < 2:
+                continue
+    
+            # Type 2 = AS_PATH
+            if attr_bytes[1] == 2:
+                # Skip header (assume 2-byte length if extended length flag is set)
+                flags = attr_bytes[0]
+                if flags & 0x10:
+                    length = int.from_bytes(attr_bytes[2:4], "big")
+                    payload = attr_bytes[4:]
+                else:
+                    length = attr_bytes[2]
+                    payload = attr_bytes[3:]
+    
+                # Now decode AS path
+                asns = []
+                i = 0
+                while i < len(payload):
+                    seg_type = payload[i]
+                    seg_len = payload[i + 1]
+                    i += 2
+                    for _ in range(seg_len):
+                        asn = int.from_bytes(payload[i:i + 4], "big")
+                        asns.append(asn)
+                        i += 4
+                return asns
+        return []
     
     def _extract_community(self, destination):
-        prefix = "C00"
         for attr in destination.paths[0].pattrs:
-            attr = attr.hex()
-            if attr.upper().startswith(prefix):
-                communities = attr[6:]
-                communities = list(self.chunkstring(string=communities, length=4))
-                output = []
-                for index, _ in enumerate(communities):
-                    if index % 2 == 1:
-                        output.append("{}:{}".format(communities[index-1], communities[index]))
-                return output
-        return None
+            attr_bytes = bytes(attr)
+            if len(attr_bytes) < 2:
+                continue
+    
+            # Type 8 = COMMUNITY
+            if attr_bytes[1] == 8:
+                flags = attr_bytes[0]
+                if flags & 0x10:
+                    length = int.from_bytes(attr_bytes[2:4], "big")
+                    payload = attr_bytes[4:]
+                else:
+                    length = attr_bytes[2]
+                    payload = attr_bytes[3:]
+    
+                communities = []
+                for i in range(0, len(payload), 4):
+                    com1 = int.from_bytes(payload[i:i + 2], "big")
+                    com2 = int.from_bytes(payload[i + 2:i + 4], "big")
+                    communities.append(f"{com1}:{com2}")
+                return communities
+        return []
     
     def _extract_next_hop(self, destination):
-        prefix = "4003"
         for attr in destination.paths[0].pattrs:
-            attr = attr.hex()
-            if attr.startswith(prefix):
-                next_hop = int(attr[6:], 16)
-                next_hop = socket.inet_ntoa(struct.pack(">L", next_hop))
-                return next_hop 
+            attr_bytes = bytes(attr)
+            if len(attr_bytes) < 2:
+                continue
+    
+            # Type 3 = NEXT_HOP
+            if attr_bytes[1] == 3:
+                # This is only 4 bytes
+                next_hop_ip = socket.inet_ntoa(attr_bytes[-4:])
+                return next_hop_ip
         return None
     
     def _extract_med(self, destination):
-        prefix = "800"
-        for attr in destination.paths[0].pattrs:
-            attr = attr.hex()
-            if attr.startswith(prefix):
-                med = int(attr[6:], 16)
-                return med
-        return None
+    for attr in destination.paths[0].pattrs:
+        attr_bytes = bytes(attr)
+        if len(attr_bytes) < 2:
+            continue
+
+        # Type 4 = MED
+        if attr_bytes[1] == 4:
+            flags = attr_bytes[0]
+            if flags & 0x10:
+                length = int.from_bytes(attr_bytes[2:4], "big")
+                payload = attr_bytes[4:]
+            else:
+                length = attr_bytes[2]
+                payload = attr_bytes[3:]
+            med = int.from_bytes(payload[:length], "big")
+            return med
+    return None
     
-    @staticmethod
-    def chunkstring(string, length):
-        return (int(string[0+i:length+i], 16) for i in range(0, len(string), length))
+
 
     
 class Neighbor:
