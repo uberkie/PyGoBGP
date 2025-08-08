@@ -15,48 +15,25 @@ class PyGoBGP:
         self.channel = grpc.insecure_channel(self.gobgp_address)
         self.stub = gobgp_grpc.GobgpApiStub(self.channel)
         
-    def get_rib(self):
-        """ 
-        Get Routes in BGP-RIB.
-        Disclaimer: Only Global IPv4 addresses supported at the moment
-        Supported BGP attributes: as path, standard community, next hop ip (v4) and MED,
-        there is no support for other BGP attributes at the moment.
-        
-        gRPC for GetRib is defined as below:
-        https://github.com/osrg/gobgp/blob/615454451d59e11786fb7756c68c3c693a1fecfe/api/gobgp.proto#L40
-        
-        service GobgpApi {
-          rpc GetRib(GetRibRequest) returns (GetRibResponse) {}
-        }
-        
-        message GetRibRequest {
-          Table table = 1;
-        }
-        
-        message Table {
-          Resource type = 1;
-          string name = 2;
-          uint32 family = 3;
-          repeated Destination destinations = 4;
-          bool post_policy = 5;
-        }
-        
-        """
-        
-        # Build GetRibRequest object 
-        ipv4_family = 65537      # IPv4 Family
-        request = gobgp.GetRibRequest()
-        table = gobgp.Table(family=ipv4_family)
-        request.table.MergeFrom(table)
-        
-        # Get Rib contents 
-        # raw routes is a GetRibResponse object which contains a Table object
-        raw_routes = self.stub.GetRib(request)
-        
-        # GoBGP returns BGP path attributes not so much in a friendly way,
-        # we extract them (kind of hackish for the moment)
-        routes = self._extract_routes(raw_routes)
-        return routes
+    def get_rib(self, ipv6=False):
+    """
+    Get routes in the BGP-RIB.
+    Set ipv6=True to query IPv6 unicast routes.
+    """
+    # AFI/SAFI calculation
+    afi = 2 if ipv6 else 1
+    safi = 1  # unicast
+    family = (afi << 16) | safi
+
+    # Build request
+    request = gobgp.GetRibRequest()
+    table = gobgp.Table(family=family)
+    request.table.MergeFrom(table)
+
+    # Get RIB contents
+    raw_routes = self.stub.GetRib(request)
+    routes = self._extract_routes(raw_routes)
+    return routes
     
     def get_neighbor(self, address):
         """
